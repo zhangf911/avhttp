@@ -485,14 +485,13 @@ public:
 			return;
 		}
 
-		// 构造异步查询HOST.
-		tcp::resolver::query query(m_url.host(), boost::lexical_cast<std::string>(m_url.port()));
-
-		// 开始异步查询HOST信息.
+		// 异步连接到目的host
 		typedef boost::function<void (boost::system::error_code)> HandlerWrapper;
-		m_resolver.async_resolve(query,
-			boost::bind(&http_stream::handle_resolve<HandlerWrapper>, this,
-			boost::asio::placeholders::error, boost::asio::placeholders::iterator, HandlerWrapper(handler)));
+		boost::async_connect(
+			m_sock.lowest_layer(),
+			tcp::resolver::query(m_url.host(), boost::lexical_cast<std::string>(m_url.port())),
+			boost::bind(&http_stream::handle_connect<HandlerWrapper>, this,
+			HandlerWrapper(handler),boost::asio::placeholders::error));
 	}
 
 	///从这个http_stream中读取一些数据.
@@ -1067,32 +1066,8 @@ public:
 
 protected:
 
-	// 异步处理模板成员的相关实现.
-
 	template <typename Handler>
-	void handle_resolve(const boost::system::error_code &err,
-		tcp::resolver::iterator endpoint_iterator, Handler handler)
-	{
-		if (!err)
-		{
-			// 发起异步连接.
-			// !!!备注: 由于m_sock可能是ssl, 那么连接的握手相关实现被封装到ssl_stream
-			// 了, 所以, 如果需要使用boost::asio::async_connect的话, 需要在http_stream
-			// 中实现握手操作, 否则将会得到一个错误.
-			m_sock.async_connect(tcp::endpoint(*endpoint_iterator),
-				boost::bind(&http_stream::handle_connect<Handler>, this,
-				handler, endpoint_iterator, boost::asio::placeholders::error));
-		}
-		else
-		{
-			// 出错回调.
-			handler(err);
-		}
-	}
-
-	template <typename Handler>
-	void handle_connect(Handler handler,
-		tcp::resolver::iterator endpoint_iterator, const boost::system::error_code &err)
+	void handle_connect(Handler handler, const boost::system::error_code &err)
 	{
 		if (!err)
 		{
@@ -1131,19 +1106,8 @@ protected:
 		}
 		else
 		{
-			// 检查是否已经尝试了endpoint列表中的所有endpoint.
-			if (++endpoint_iterator == tcp::resolver::iterator())
-				handler(err);
-			else
-			{
-				// 继续发起异步连接.
-				// !!!备注: 由于m_sock可能是ssl, 那么连接的握手相关实现被封装到ssl_stream
-				// 了, 所以, 如果需要使用boost::asio::async_connect的话, 需要在http_stream
-				// 中实现握手操作, 否则将会得到一个错误.
-				m_sock.async_connect(tcp::endpoint(*endpoint_iterator),
-					boost::bind(&http_stream::handle_connect<Handler>, this,
-					handler, endpoint_iterator, boost::asio::placeholders::error));
-			}
+			// 完成连接，互调.
+			m_io_service.post(boost::asio::detail::bind_handler(handler,err));
 		}
 	}
 
