@@ -1,0 +1,36 @@
+
+
+http_stream 接受一个 url , 对吧。
+
+class http_stream 先做好 DNS 解析和代理连接活在直接连接的工作。 如果是 SSL  还要做好 SSL 握手的工作。
+
+
+接着， 真正剩下的 HTTP 协议部分叫给 一个 helper 做
+
+template<class Socket>
+class http_stream_helper{};
+
+
+如果是 HTTPS , 就用  http_stream_helper<boost::asio::ssl_stream>(xxxxx) 的方法调用
+如果是 HTTP, 就用 http_stream_helper<boost::asio::ip::tcp::socket>(xxxxx) 的方法调用
+
+这样， http_stream_helper 实现了 HTTP 协议， 但是不需要操心是 SSL 的还是非 SSL 的， 也不需要操心DNS啊，代理啊等问题。
+
+
+那么第一层的做法是：
+
+需要2个成员， 一个 m_socket, 一个 m_sslsocket
+
+第 0 步，依据是不是 HTTP 代理选定好链接的主机 (是代理， 还是 url 里的主机)
+
+第一步， DNS 解析
+
+第二步， 发起 链接
+
+( 可选:  第三步， 发起 socks5 握手操作)
+
+第4步， 判定是否 https
+	从 m_socket 初始化 m_sslsocket. 设定 SSL 参数
+	第五步， 执行 ssl 握手 （使用 m_sslsocket） <- 就这里使用了 m_sslsocket
+
+第6步，依据是否为 HTTPS 使用模板参数风别调用 http_stream_helper<>

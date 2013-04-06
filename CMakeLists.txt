@@ -22,3 +22,5 @@ if (WIN32)
 	add_definitions(-D_WIN32_WINNT=0x0501 -DWIN32_LEAN_AND_MEAN -DBOOST_THREAD_USE_LIB)
 	target_link_libraries(avhttp ws2_32)
 endif()
+
+add_subdirectory(test)

@@ -47,6 +47,7 @@ namespace http_options {
 	static const std::string content_type("Content-Type");
 	static const std::string content_length("Content-Length");
 	static const std::string connection("Connection");
+	static const std::string location("Location");
 
 } // namespace http_options
 
