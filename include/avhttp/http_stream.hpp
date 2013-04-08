@@ -665,7 +665,7 @@ public:
 	// @返回是否打开.
 	bool is_open() const
 	{
-// 		return m_sock.is_open();
+ 		return m_socket.is_open();
 	}
 
 	///设置最大重定向次数.
