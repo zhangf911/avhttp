@@ -497,22 +497,17 @@ protected:
 
 	// 异步处理模板成员的相关实现.
 
+	// 处理socket连接.
 	template <typename Handler>
-	void handle_resolve(const boost::system::error_code &err,
-		tcp::resolver::iterator endpoint_iterator, Handler handler);
+	void do_connect(tcp::resolver::iterator endpoint_iterator, const Handler &handler);
 
+	// 处理http状态行.
 	template <typename Handler>
-	void handle_connect(Handler handler,
-		tcp::resolver::iterator endpoint_iterator, const boost::system::error_code &err);
+	void do_status(const Handler &handler);
 
+	// 处理http header.
 	template <typename Handler>
-	void handle_request(Handler handler, const boost::system::error_code &err);
-
-	template <typename Handler>
-	void handle_status(Handler handler, const boost::system::error_code &err);
-
-	template <typename Handler>
-	void handle_header(Handler handler, int bytes_transferred, const boost::system::error_code &err);
+	void do_http_header(const Handler &handler);
 
 	template <typename MutableBufferSequence, typename Handler>
 	void handle_skip_crlf(const MutableBufferSequence &buffers,

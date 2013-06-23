@@ -487,19 +487,23 @@ void http_stream::async_open(const url &u, Handler handler)
 		port = boost::lexical_cast<std::string>(m_url.port());
 	}
 
-	// 构造异步查询HOST.
+	// 异步查询HOST.
 	tcp::resolver::query query(host, port);
-
-	// 开始异步查询HOST信息.
-	typedef boost::function<void (boost::system::error_code)> HandlerWrapper;
-	HandlerWrapper h = handler;
 	m_resolver.async_resolve(query,
-		boost::bind(&http_stream::handle_resolve<HandlerWrapper>,
-			this,
-			boost::asio::placeholders::error,
-			boost::asio::placeholders::iterator,
-			h
-		)
+		[this, handler] (const boost::system::error_code &err, tcp::resolver::iterator endpoint_iterator)
+		{
+			if (!err)
+			{
+				do_connect(endpoint_iterator, handler);
+			}
+			else
+			{
+				LOG_ERROR("Resolve DNS error, \'" << m_url.host() <<
+					"\', error message \'" << err.message() << "\'");
+				// 出错回调.
+				handler(err);
+			}
+		}
 	);
 }
 
@@ -1084,12 +1088,20 @@ void http_stream::async_request(const request_opts &opt, Handler handler)
 #endif
 
 	// 异步发送请求.
-	typedef boost::function<void (boost::system::error_code)> HandlerWrapper;
 	boost::asio::async_write(m_sock, m_request, boost::asio::transfer_exactly(m_request.size()),
-		boost::bind(&http_stream::handle_request<HandlerWrapper>,
-			this, HandlerWrapper(handler),
-			boost::asio::placeholders::error
-		)
+		[this, handler] (const boost::system::error_code &err, std::size_t bytes_transferred)
+		{
+			// 发生错误.
+			if (err)
+			{
+				LOG_ERROR("Send request, error message: \'" << err.message() <<"\'");
+				handler(err);
+				return;
+			}
+
+			// 异步读取Http status.
+			do_status(handler);
+		}
 	);
 }
 
@@ -1233,236 +1245,187 @@ std::size_t http_stream::read_some_impl(const MutableBufferSequence &buffers,
 }
 
 template <typename Handler>
-void http_stream::handle_resolve(const boost::system::error_code &err,
-	tcp::resolver::iterator endpoint_iterator, Handler handler)
+void http_stream::do_connect(tcp::resolver::iterator endpoint_iterator, const Handler &handler)
 {
-	if (!err)
-	{
-		// 发起异步连接.
-		// !!!备注: 由于m_sock可能是ssl, 那么连接的握手相关实现被封装到ssl_stream
-		// 了, 所以, 如果需要使用boost::asio::async_connect的话, 需要在http_stream
-		// 中实现握手操作, 否则将会得到一个错误.
-		m_sock.async_connect(tcp::endpoint(*endpoint_iterator),
-			boost::bind(&http_stream::handle_connect<Handler>,
-				this, handler, endpoint_iterator,
-				boost::asio::placeholders::error
-			)
-		);
-	}
-	else
-	{
-		LOG_ERROR("Resolve DNS error, \'" << m_url.host() <<
-			"\', error message \'" << err.message() << "\'");
-		// 出错回调.
-		handler(err);
-	}
-}
-
-template <typename Handler>
-void http_stream::handle_connect(Handler handler,
-	tcp::resolver::iterator endpoint_iterator, const boost::system::error_code &err)
-{
-	if (!err)
-	{
-		LOG_DEBUG("Connect to \'" << m_url.host() << "\'.");
-		// 发起异步请求.
-		async_request(m_request_opts_priv, handler);
-	}
-	else
-	{
-		// 检查是否已经尝试了endpoint列表中的所有endpoint.
-		if (++endpoint_iterator == tcp::resolver::iterator())
+	m_sock.async_connect(tcp::endpoint(*endpoint_iterator),
+	[this, handler, endpoint_iterator] (const boost::system::error_code &err) mutable
 		{
-			LOG_ERROR("Connect to \'" << m_url.host() <<
-				"\', error message \'" << err.message() << "\'");
-			handler(err);
+			if (!err)
+			{
+				LOG_DEBUG("Connect to \'" << m_url.host() << "\'.");
+				// 发起异步请求.
+				async_request(m_request_opts_priv, handler);
+			}
+			else
+			{
+				// 检查是否已经尝试了endpoint列表中的所有endpoint.
+				if (++endpoint_iterator == tcp::resolver::iterator())
+				{
+					LOG_ERROR("Connect to \'" << m_url.host() <<
+						"\', error message \'" << err.message() << "\'");
+					handler(err);
+				}
+				else
+				{
+					// 继续发起异步连接.
+					// !!!备注: 由于m_sock可能是ssl, 那么连接的握手相关实现被封装到ssl_stream
+					// 了, 所以, 如果需要使用boost::asio::async_connect的话, 需要在http_stream
+					// 中实现握手操作, 否则将会得到一个错误.
+					do_connect(endpoint_iterator, handler);
+				}
+			}
 		}
-		else
-		{
-			// 继续发起异步连接.
-			// !!!备注: 由于m_sock可能是ssl, 那么连接的握手相关实现被封装到ssl_stream
-			// 了, 所以, 如果需要使用boost::asio::async_connect的话, 需要在http_stream
-			// 中实现握手操作, 否则将会得到一个错误.
-			m_sock.async_connect(tcp::endpoint(*endpoint_iterator),
-				boost::bind(&http_stream::handle_connect<Handler>,
-					this, handler, endpoint_iterator,
-					boost::asio::placeholders::error
-				)
-			);
-		}
-	}
-}
-
-template <typename Handler>
-void http_stream::handle_request(Handler handler, const boost::system::error_code &err)
-{
-	// 发生错误.
-	if (err)
-	{
-		LOG_ERROR("Send request, error message: \'" << err.message() <<"\'");
-		handler(err);
-		return;
-	}
-
-	// 异步读取Http status.
-	boost::asio::async_read_until(m_sock, m_response, "\r\n",
-		boost::bind(&http_stream::handle_status<Handler>,
-			this, handler,
-			boost::asio::placeholders::error
-		)
 	);
 }
 
 template <typename Handler>
-void http_stream::handle_status(Handler handler, const boost::system::error_code &err)
+void http_stream::do_status(const Handler &handler)
 {
-	// 发生错误.
-	if (err)
-	{
-		LOG_ERROR("Read status line, error message: \'" << err.message() <<"\'");
-		handler(err);
-		return;
-	}
+	boost::asio::async_read_until(m_sock, m_response, "\r\n",
+	[this, handler] (const boost::system::error_code &err, std::size_t bytes_transferred)
+		{
+			if (err)
+			{
+				LOG_ERROR("Read status line, error message: \'" << err.message() <<"\'");
+				handler(err);
+				return;
+			}
 
-	// 复制到新的streambuf中处理首行http状态, 如果不是http状态行, 那么将保持m_response中的内容,
-	// 这主要是为了兼容非标准http服务器直接向客户端发送文件的需要, 但是依然需要以malformed_status_line
-	// 通知用户, malformed_status_line并不意味着连接关闭, 关于m_response中的数据如何处理, 由用户自己
-	// 决定是否读取, 这时, 用户可以使用read_some/async_read_some来读取这个链接上的所有数据.
-	boost::asio::streambuf tempbuf;
-	int response_size = m_response.size();
-	boost::asio::streambuf::const_buffers_type::const_iterator begin(m_response.data().begin());
-	const char* ptr = boost::asio::buffer_cast<const char*>(*begin);
-	std::ostream tempbuf_stream(&tempbuf);
-	tempbuf_stream.write(ptr, response_size);
+			// 复制到新的streambuf中处理首行http状态, 如果不是http状态行, 那么将保持m_response中的内容,
+			// 这主要是为了兼容非标准http服务器直接向客户端发送文件的需要, 但是依然需要以malformed_status_line
+			// 通知用户, malformed_status_line并不意味着连接关闭, 关于m_response中的数据如何处理, 由用户自己
+			// 决定是否读取, 这时, 用户可以使用read_some/async_read_some来读取这个链接上的所有数据.
+			boost::asio::streambuf tempbuf;
+			int response_size = m_response.size();
+			boost::asio::streambuf::const_buffers_type::const_iterator begin(m_response.data().begin());
+			const char* ptr = boost::asio::buffer_cast<const char*>(*begin);
+			std::ostream tempbuf_stream(&tempbuf);
+			tempbuf_stream.write(ptr, response_size);
 
-	// 检查http状态码, version_major和version_minor是http协议的版本号.
-	int version_major = 0;
-	int version_minor = 0;
-	m_status_code = 0;
-	if (!detail::parse_http_status_line(
-		std::istreambuf_iterator<char>(&tempbuf),
-		std::istreambuf_iterator<char>(),
-		version_major, version_minor, m_status_code))
-	{
-		LOG_ERROR("Malformed status line");
-		handler(errc::malformed_status_line);
-		return;
-	}
+			// 检查http状态码, version_major和version_minor是http协议的版本号.
+			int version_major = 0;
+			int version_minor = 0;
+			m_status_code = 0;
+			if (!detail::parse_http_status_line(
+				std::istreambuf_iterator<char>(&tempbuf),
+				std::istreambuf_iterator<char>(),
+				version_major, version_minor, m_status_code))
+			{
+				LOG_ERROR("Malformed status line");
+				handler(errc::malformed_status_line);
+				return;
+			}
 
-	// 处理掉状态码所占用的字节数.
-	m_response.consume(response_size - tempbuf.size());
+			// 处理掉状态码所占用的字节数.
+			m_response.consume(response_size - tempbuf.size());
 
-	// "continue"表示我们需要继续等待接收状态.
-	if (m_status_code == errc::continue_request)
-	{
-		boost::asio::async_read_until(m_sock, m_response, "\r\n",
-			boost::bind(&http_stream::handle_status<Handler>,
-				this, handler,
-				boost::asio::placeholders::error
-			)
-		);
-	}
-	else
-	{
-		// 清除原有的返回选项.
-		m_response_opts.clear();
-		// 添加状态码.
-		m_response_opts.insert("_status_code", boost::str(boost::format("%d") % m_status_code));
-		// 异步读取所有Http header部分.
-		boost::asio::async_read_until(m_sock, m_response, "\r\n\r\n",
-			boost::bind(&http_stream::handle_header<Handler>,
-				this, handler,
-				boost::asio::placeholders::bytes_transferred,
-				boost::asio::placeholders::error
-			)
-		);
-	}
+			// "continue"表示我们需要继续等待接收状态.
+			if (m_status_code == errc::continue_request)
+			{
+				do_status(handler);
+			}
+			else
+			{
+				// 清除原有的返回选项.
+				m_response_opts.clear();
+				// 添加状态码.
+				m_response_opts.insert("_status_code", boost::str(boost::format("%d") % m_status_code));
+				// 异步读取所有Http header部分.
+				do_http_header(handler);
+			}
+		}
+	);
 }
 
 template <typename Handler>
-void http_stream::handle_header(Handler handler, int bytes_transferred, const boost::system::error_code &err)
+void http_stream::do_http_header(const Handler &handler)
 {
-	if (err)
-	{
-		LOG_ERROR("Header error, error message: \'" << err.message() << "\'");
-		handler(err);
-		return;
-	}
-
-	std::string header_string;
-	header_string.resize(bytes_transferred);
-	m_response.sgetn(&header_string[0], bytes_transferred);
-
-	LOG_DEBUG("Status code: " << m_status_code);
-	LOG_DEBUG("Http header:\n" << header_string);
-
-	boost::system::error_code ec;
-
-	// 解析Http Header.
-	if (!detail::parse_http_headers(header_string.begin(), header_string.end(),
-		m_content_type, m_content_length, m_location, m_response_opts.option_all()))
-	{
-		ec = errc::malformed_response_headers;
-		LOG_ERROR("Parse header error, error message: \'" << ec.message() << "\'");
-		handler(ec);
-		return;
-	}
-
-	// 判断是否需要跳转.
-	if (m_status_code == errc::moved_permanently || m_status_code == errc::found)
-	{
-		m_sock.close(ec);
-		if (++m_redirects <= m_max_redirects)
+	boost::asio::async_read_until(m_sock, m_response, "\r\n\r\n",
+	[this, handler] (const boost::system::error_code &err, std::size_t bytes_transferred)
 		{
-			// 查询location中是否有协议相关标识, 如果没有http或https前辍, 则添加.
-			std::size_t found = m_location.find("://");
-			if (found == std::string::npos)
+			if (err)
 			{
-				// 添加头.
-				std::string prefix = m_url.to_string(
-					url::protocol_component|url::host_component|url::port_component);
-				m_location = prefix + "/" + m_location;
+				LOG_ERROR("Header error, error message: \'" << err.message() << "\'");
+				handler(err);
+				return;
 			}
-			url new_url = url::from_string(m_location, ec);
-			if (ec == boost::system::errc::invalid_argument)
+
+			std::string header_string;
+			header_string.resize(bytes_transferred);
+			m_response.sgetn(&header_string[0], bytes_transferred);
+
+			LOG_DEBUG("Status code: " << m_status_code);
+			LOG_DEBUG("Http header:\n" << header_string);
+
+			boost::system::error_code ec;
+
+			// 解析Http Header.
+			if (!detail::parse_http_headers(header_string.begin(), header_string.end(),
+				m_content_type, m_content_length, m_location, m_response_opts.option_all()))
 			{
-				// 向用户报告跳转地址错误.
-				ec = errc::invalid_redirect;
-				LOG_ERROR("Location url invalid, error message: \'" << ec.message() << "\'");
+				ec = errc::malformed_response_headers;
+				LOG_ERROR("Parse header error, error message: \'" << ec.message() << "\'");
 				handler(ec);
 				return;
 			}
-			async_open(new_url, handler);
-			return;
-		}
-	}
 
-	// 清空重定向次数.
-	m_redirects = 0;
+			// 判断是否需要跳转.
+			if (m_status_code == errc::moved_permanently || m_status_code == errc::found)
+			{
+				m_sock.close(ec);
+				if (++m_redirects <= m_max_redirects)
+				{
+					// 查询location中是否有协议相关标识, 如果没有http或https前辍, 则添加.
+					std::size_t found = m_location.find("://");
+					if (found == std::string::npos)
+					{
+						// 添加头.
+						std::string prefix = m_url.to_string(
+							url::protocol_component|url::host_component|url::port_component);
+						m_location = prefix + "/" + m_location;
+					}
+					url new_url = url::from_string(m_location, ec);
+					if (ec == boost::system::errc::invalid_argument)
+					{
+						// 向用户报告跳转地址错误.
+						ec = errc::invalid_redirect;
+						LOG_ERROR("Location url invalid, error message: \'" << ec.message() << "\'");
+						handler(ec);
+						return;
+					}
+					async_open(new_url, handler);
+					return;
+				}
+			}
 
-	if (m_status_code != errc::ok && m_status_code != errc::partial_content)
-		ec = make_error_code(static_cast<errc::errc_t>(m_status_code));
+			// 清空重定向次数.
+			m_redirects = 0;
 
-	// 解析是否启用了gz压缩.
-	std::string opt_str = m_response_opts.find(http_options::content_encoding);
+			if (m_status_code != errc::ok && m_status_code != errc::partial_content)
+				ec = make_error_code(static_cast<errc::errc_t>(m_status_code));
+
+			// 解析是否启用了gz压缩.
+			std::string opt_str = m_response_opts.find(http_options::content_encoding);
 #ifdef AVHTTP_ENABLE_ZLIB
-	if (opt_str == "gzip" || opt_str == "x-gzip")
-		m_is_gzip = true;
+			if (opt_str == "gzip" || opt_str == "x-gzip")
+				m_is_gzip = true;
 #endif
-	// 是否启用了chunked.
-	opt_str = m_response_opts.find(http_options::transfer_encoding);
-	if (opt_str == "chunked")
-		m_is_chunked = true;
-	// 是否在请求完成后关闭socket.
-	opt_str = m_request_opts.find(http_options::connection);
-	if (opt_str == "close")
-		m_keep_alive = false;
-	opt_str = m_response_opts.find(http_options::connection);
-	if (opt_str == "close")
-		m_keep_alive = false;
+			// 是否启用了chunked.
+			opt_str = m_response_opts.find(http_options::transfer_encoding);
+			if (opt_str == "chunked")
+				m_is_chunked = true;
+			// 是否在请求完成后关闭socket.
+			opt_str = m_request_opts.find(http_options::connection);
+			if (opt_str == "close")
+				m_keep_alive = false;
+			opt_str = m_response_opts.find(http_options::connection);
+			if (opt_str == "close")
+				m_keep_alive = false;
 
-	// 回调通知.
-	handler(ec);
+			// 回调通知.
+			handler(ec);
+		}
+	);
 }
 
 template <typename MutableBufferSequence, typename Handler>
