@@ -96,6 +96,7 @@
     <ClInclude Include="..\include\avhttp.hpp" />
     <ClInclude Include="..\include\avhttp\bencode.hpp" />
     <ClInclude Include="..\include\avhttp\bitfield.hpp" />
+    <ClInclude Include="..\include\avhttp\detail\handler_type_requirements.hpp" />
     <ClInclude Include="..\include\avhttp\entry.hpp" />
     <ClInclude Include="..\include\avhttp\file.hpp" />
     <ClInclude Include="..\include\avhttp\http_stream.hpp" />
