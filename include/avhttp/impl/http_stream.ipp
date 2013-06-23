@@ -561,6 +561,7 @@ std::size_t http_stream::read_some(const MutableBufferSequence &buffers,
 				if(crlf[0] != '\r' || crlf[1] != '\n')
 				{
 					ec = errc::invalid_chunked_encoding;
+					LOG_ERROR("Invalid chunked encoding");
 					return bytes_transferred;
 				}
 			}
@@ -838,7 +839,7 @@ void http_stream::do_skip_crlf(const MutableBufferSequence &buffers, const Handl
 	boost::shared_array<char> crlf, int read_bytes)
 {
 	BOOST_ASSERT(read_bytes > 0 && read_bytes <=2);
-	m_sock.async_read_some(boost::asio::buffer(&crlf.get()[2 - read_bytes], 2 - read_bytes),
+	m_sock.async_read_some(boost::asio::buffer(&crlf.get()[2 - read_bytes], read_bytes),
 		[this, buffers, handler, crlf](const boost::system::error_code &ec, std::size_t bytes_transferred) mutable
 		{
 			if (!ec)
@@ -859,6 +860,7 @@ void http_stream::do_skip_crlf(const MutableBufferSequence &buffers, const Handl
 				if(crlf.get()[0] != '\r' || crlf.get()[1] != '\n')
 				{
 					boost::system::error_code err = errc::invalid_chunked_encoding;
+					LOG_ERROR("Invalid chunked encoding");
 					handler(err, bytes_transferred);
 					return;
 				}
@@ -1030,6 +1032,7 @@ void http_stream::async_read_some(const MutableBufferSequence &buffers, BOOST_AS
 						if(crlf.get()[0] != '\r' || crlf.get()[1] != '\n')
 						{
 							ec = errc::invalid_chunked_encoding;
+							LOG_ERROR("Invalid chunked encoding");
 							m_io_service.post(
 								boost::asio::detail::bind_handler(handler, ec, 0));
 							return;
