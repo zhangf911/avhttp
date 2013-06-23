@@ -55,7 +55,7 @@
     <ClCompile>
       <Optimization>Disabled</Optimization>
       <AdditionalIncludeDirectories>../include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;_WIN32_WINNT=0x0501;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;_WIN32_WINNT=0x0501;AVHTTP_ENABLE_OPENSSL;LOGGER_DBG_VIEW;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <MinimalRebuild>true</MinimalRebuild>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
@@ -69,6 +69,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Console</SubSystem>
       <TargetMachine>MachineX86</TargetMachine>
+      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -98,6 +99,7 @@
     <ClInclude Include="..\include\avhttp\entry.hpp" />
     <ClInclude Include="..\include\avhttp\file.hpp" />
     <ClInclude Include="..\include\avhttp\http_stream.hpp" />
+    <ClInclude Include="..\include\avhttp\logging.hpp" />
     <ClInclude Include="..\include\avhttp\multi_download.hpp" />
     <ClInclude Include="..\include\avhttp\rangefield.hpp" />
     <ClInclude Include="..\include\avhttp\settings.hpp" />
@@ -111,6 +113,7 @@
     <ClInclude Include="..\include\avhttp\detail\parsers.hpp" />
     <ClInclude Include="..\include\avhttp\detail\socket_type.hpp" />
     <ClInclude Include="..\include\avhttp\detail\ssl_stream.hpp" />
+    <ClInclude Include="..\include\avhttp\version.hpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\include\avhttp\impl\http_stream.ipp" />

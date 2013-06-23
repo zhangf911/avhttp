@@ -86,6 +86,12 @@
     <ClInclude Include="..\include\avhttp\detail\ssl_stream.hpp">
       <Filter>头文件\avhttp\detail</Filter>
     </ClInclude>
+    <ClInclude Include="..\include\avhttp\logging.hpp">
+      <Filter>头文件\avhttp</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\avhttp\version.hpp">
+      <Filter>头文件\avhttp</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\include\avhttp\impl\http_stream.ipp">
