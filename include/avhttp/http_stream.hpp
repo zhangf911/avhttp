@@ -509,18 +509,18 @@ protected:
 	template <typename Handler>
 	void do_http_header(const Handler &handler);
 
+	// 跳过chunked中的CRLF.
 	template <typename MutableBufferSequence, typename Handler>
-	void handle_skip_crlf(const MutableBufferSequence &buffers,
-		Handler handler, boost::shared_array<char> crlf,
-		const boost::system::error_code &ec, std::size_t bytes_transferred);
+	void do_skip_crlf(const MutableBufferSequence &buffers, const Handler &handler,
+		boost::shared_array<char> crlf, int read_bytes);
 
+	// 处理chunked_size.
 	template <typename MutableBufferSequence, typename Handler>
-	void handle_async_read(const MutableBufferSequence &buffers,
-		Handler handler, const boost::system::error_code &ec, std::size_t bytes_transferred);
+	void do_chunked_size(const MutableBufferSequence &buffers, const Handler &handler);
 
+	// 读取chunked的数据.
 	template <typename MutableBufferSequence, typename Handler>
-	void handle_chunked_size(const MutableBufferSequence &buffers,
-		Handler handler, const boost::system::error_code &ec, std::size_t bytes_transferred);
+	void do_read(const MutableBufferSequence &buffers, Handler handler);
 
 	// 连接到socks代理, 在这一步中完成和socks的信息交换过程, 出错信息在ec中.
 	template <typename Stream>
