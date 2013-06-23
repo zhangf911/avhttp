@@ -1282,7 +1282,7 @@ template <typename Handler>
 void http_stream::do_status(const Handler &handler)
 {
 	boost::asio::async_read_until(m_sock, m_response, "\r\n",
-	[this, handler] (const boost::system::error_code &err, std::size_t bytes_transferred)
+	[this, handler] (const boost::system::error_code &err, std::size_t bytes_transferred) mutable
 		{
 			if (err)
 			{
@@ -1341,7 +1341,7 @@ template <typename Handler>
 void http_stream::do_http_header(const Handler &handler)
 {
 	boost::asio::async_read_until(m_sock, m_response, "\r\n\r\n",
-	[this, handler] (const boost::system::error_code &err, std::size_t bytes_transferred)
+	[this, handler] (const boost::system::error_code &err, std::size_t bytes_transferred) mutable
 		{
 			if (err)
 			{
