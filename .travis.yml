@@ -6,13 +6,15 @@ compiler:
 before_install:
   - sudo add-apt-repository -y ppa:apokluda/boost1.53
   - sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+  - sudo add-apt-repository -y ppa:yak1ex/llvm
   - sudo apt-get update
-  - sudo apt-get install gcc-4.7 g++-4.7
+  - sudo apt-get install gcc-4.7 g++-4.7 clang-3.3
   - sudo apt-get install -qq boost1.53
   - sudo apt-get install zlib1g-dev
 
 before_script:
   - if [[ $CXX == "g++" ]] ; then export CXX='g++-4.7' ; export CC='gcc-4.7' ; fi
+  - if [[ $CXX == "clang++" ]] ; then export CXX='clang++-3.3' ; export CC='clang-3.3' ; fi
   - cmake . -DDEBUG=1
 
 script:
