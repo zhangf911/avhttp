@@ -10,6 +10,7 @@ before_install:
   - sudo apt-get install gcc-4.7 g++-4.7
   - sudo apt-get install -qq boost1.53
   - sudo apt-get install zlib1g-dev
+  - [[ $CXX == "g++" ]] && export CXX=g++-4.7 && export CC=gcc-4.7
 
 before_script:
   cmake . -DDEBUG=1
