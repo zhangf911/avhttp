@@ -17,6 +17,11 @@ if(CMAKE_COMPILER_IS_GNUCXX)
 	add_definitions(-std=c++11)
 endif()
 
+if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+	add_definitions(-std=c++11)
+endif()
+
+
 if (ENABLE_OPENSSL)
 	find_package(OpenSSL)
 	add_definitions(-DAVHTTP_ENABLE_OPENSSL)
