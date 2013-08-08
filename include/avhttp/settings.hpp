@@ -233,9 +233,9 @@ static const int default_buffer_size = 1024;
 
 // multi_download下载设置.
 
-struct settings
+struct multi_download_settings
 {
-	settings ()
+	multi_download_settings ()
 		: download_rate_limit(-1)
 		, connections_limit(default_connections_limit)
 		, piece_size(-1)

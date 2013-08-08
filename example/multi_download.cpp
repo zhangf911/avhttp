@@ -74,7 +74,7 @@ int main(int argc, char* argv[])
 		boost::asio::io_service io;
 		avhttp::multi_download d(io);
 
-		avhttp::settings s;
+		avhttp::multi_download_settings s;
 		s.check_certificate = false;
 		// s.m_download_rate_limit = 102400;
 

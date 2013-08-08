@@ -148,7 +148,7 @@ public:
 	// 可以通过调用另一个open来完成, 具体见另一个open的详细说明.
 	AVHTTP_DECL void start(const std::string &u, boost::system::error_code &ec)
 	{
-		settings s;
+		multi_download_settings s;
 		start(u, s, ec);
 	}
 
@@ -158,7 +158,7 @@ public:
 	// 可以通过调用另一个open来完成, 具体见另一个open的详细说明.
 	AVHTTP_DECL void start(const std::string &u)
 	{
-		settings s;
+		multi_download_settings s;
 		boost::system::error_code ec;
 		start(u, s, ec);
 		if (ec)
@@ -171,7 +171,7 @@ public:
 	// @param u指定的url.
 	// @param s指定的设置信息.
 	// @失败抛出一个boost::system::system_error异常, 包含详细的错误信息.
-	AVHTTP_DECL void start(const std::string &u, const settings &s)
+	AVHTTP_DECL void start(const std::string &u, const multi_download_settings &s)
 	{
 		boost::system::error_code ec;
 		start(u, s, ec);
@@ -185,7 +185,7 @@ public:
 	// @param u指定的url.
 	// @param s指定的设置信息.
 	// @返回error_code, 包含详细的错误信息.
-	AVHTTP_DECL void start(const std::string &u, const settings &s, boost::system::error_code &ec)
+	AVHTTP_DECL void start(const std::string &u, const multi_download_settings &s, boost::system::error_code &ec)
 	{
 		// 清空所有连接.
 		{
@@ -582,7 +582,7 @@ public:
 	template <typename Handler>
 	void async_start(const std::string &u, Handler handler)
 	{
-		settings s;
+		multi_download_settings s;
 		async_start(u, s, handler);
 	}
 
@@ -611,7 +611,7 @@ public:
 	// @备注: handler也可以使用boost.bind来绑定一个符合规定的函数作
 	// 为async_start的参数handler.
 	template <typename Handler>
-	void async_start(const std::string &u, const settings &s, Handler handler)
+	void async_start(const std::string &u, const multi_download_settings &s, Handler handler)
 	{
 		// 清空所有连接.
 		{
@@ -763,7 +763,7 @@ public:
 	}
 
 	///返回当前设置信息.
-	AVHTTP_DECL const settings& set() const
+	AVHTTP_DECL const multi_download_settings& set() const
 	{
 		return m_settings;
 	}
@@ -1924,7 +1924,7 @@ private:
 	mutable std::string m_file_name;
 
 	// 当前用户设置.
-	settings m_settings;
+	multi_download_settings m_settings;
 
 	// 定时器, 用于定时执行一些任务, 比如检查连接是否超时之类.
 	boost::asio::deadline_timer m_timer;
