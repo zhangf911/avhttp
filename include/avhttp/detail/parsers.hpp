@@ -40,16 +40,16 @@ namespace detail {
 # endif
 #endif // atoi64
 
-inline bool headers_equal(const std::string &a, const std::string &b)
+inline bool headers_equal(const std::string& a, const std::string& b)
 {
 	if (a.length() != b.length())
 		return false;
 	return std::equal(a.begin(), a.end(), b.begin(), tolower_compare);
 }
 
-inline void check_header(const std::string &name, const std::string &value,
-	std::string &content_type, boost::int64_t &content_length,
-	std::string &location)
+inline void check_header(const std::string& name, const std::string& value,
+	std::string& content_type, boost::int64_t& content_length,
+	std::string& location)
 {
 	if (headers_equal(name, "Content-Type"))
 		content_type = value;
@@ -61,7 +61,7 @@ inline void check_header(const std::string &name, const std::string &value,
 
 template <typename Iterator>
 bool parse_http_status_line(Iterator begin, Iterator end,
-	int& version_major, int &version_minor, int& status)
+	int& version_major, int& version_minor, int& status)
 {
 	enum
 	{
@@ -173,8 +173,8 @@ bool parse_http_status_line(Iterator begin, Iterator end,
 
 template <typename Iterator>
 bool parse_http_headers(Iterator begin, Iterator end,
-	std::string &content_type, boost::int64_t &content_length,
-	std::string &location)
+	std::string& content_type, boost::int64_t& content_length,
+	std::string& location)
 {
 	enum
 	{
@@ -290,8 +290,8 @@ typedef avhttp::option::option_item_list http_headers;
 
 template <typename Iterator>
 bool parse_http_headers(Iterator begin, Iterator end,
-	std::string &content_type, boost::int64_t &content_length,
-	std::string &location, http_headers &headers)
+	std::string& content_type, boost::int64_t& content_length,
+	std::string& location, http_headers& headers)
 {
 	enum
 	{
@@ -405,6 +405,95 @@ bool parse_http_headers(Iterator begin, Iterator end,
 		}
 	}
 	return false;
+}
+
+// 从Content-Disposition解析filename字段, 示例:
+// attachment=other; filename="file.zip"; 这样的字符串中匹配到
+// filename项, 将它的value保存到filename变量.
+template <typename Iterator>
+bool parse_filename(Iterator begin, Iterator end, std::string& filename)
+{
+	enum
+	{
+		parse_key_start,
+		parse_key,
+		parse_value_start,
+		parse_value,
+		parse_fail
+	} state = parse_key_start;
+
+	Iterator iter = begin;
+	std::string name;
+	std::string value;
+	char c;
+
+	while (iter != end && state != parse_fail)
+	{
+		c = *iter++;
+		switch (state)
+		{
+		case parse_key_start:
+			if (c == ' ')
+				continue;
+			if (is_char(c))
+			{
+				name.push_back(c);
+				state = parse_key;
+			}
+			else
+				state = parse_fail;
+			break;
+		case parse_key:
+			if (c == ';')
+			{
+				name = "";
+				state = parse_key_start;
+			}
+			else if (c == '=')
+			{
+				value = "";
+				state = parse_value_start;
+			}
+			else if (is_tspecial(c) || c == ':')
+			{
+				name = "";
+				state = parse_key_start;
+			}
+			else if (is_char(c) || c == '_')
+				name.push_back(c);
+			break;
+		case parse_value_start:
+			if (c == ';' || c == '\"' || c == '\'')
+				continue;
+			if (is_char(c))
+			{
+				value.push_back(c);
+				state = parse_value;
+			}
+			else
+				state = parse_fail;
+			break;
+		case parse_value:
+			if (c == ';' || c == '\"' || c == '\'')
+			{
+				if (name == "filename")
+					filename = value;
+				state = parse_key_start;
+			}
+			else if (is_char(c))
+				value.push_back(c);
+			else
+				state = parse_fail;
+			break;
+		case parse_fail:
+			break;
+		}
+	}
+	if (name == "filename" && !value.empty())
+		filename = value;
+	if (filename.empty())
+		return false;
+	return true;
 }
 
 #ifdef atoi64
