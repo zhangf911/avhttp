@@ -23,10 +23,14 @@
 
 namespace avhttp {
 
+using boost::asio::ip::tcp;
+
 class http_server : boost::asio::coroutine
 {
+
 public:
-	AVHTTP_DECL explicit http_server()
+	AVHTTP_DECL explicit http_server(boost::asio::io_service& io)
+		: m_ioservice(io)
 	{
 	}
 
@@ -35,6 +39,16 @@ public:
 	}
 
 private:
+
+	// boost::asio::io_service引用.
+	boost::asio::io_service& m_ioservice;
+
+	// 用于接受进来的连接.
+	boost::shared_ptr<tcp::acceptor> m_accetpor;
+
+	// 一个客户端的当前连接.
+	boost::shared_ptr<tcp::socket> m_socket;
+
 };
 
 } // namespace avhttp
