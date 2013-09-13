@@ -22,7 +22,8 @@
 #include <boost/filesystem.hpp>
 #include <boost/date_time.hpp>
 
-#include "avhttp/storage_interface.hpp"
+#include "storage_interface.hpp"
+#include "interthread_stream.hpp"
 
 namespace avhttp {
 
@@ -76,7 +77,8 @@ public:
 
 public:
 
-	option() {}
+	option():m_body_stream(NULL){}
+
 	~option() {}
 
 public:
@@ -185,6 +187,15 @@ public:
 		return m_body_callback;
 	}
 
+	void body_stream(interthread_stream & bodystream)
+	{
+		m_body_stream = & bodystream;
+	}
+
+	interthread_stream* body_stream()
+	{
+		return m_body_stream;
+	}
 protected:
 	// 选项列表.
 	option_item_list m_opts;
@@ -192,6 +203,10 @@ protected:
 	// body选项回调, 一般用于处理在header发送完成后的继续
 	// 需要向服务器发送数据.
 	body_callback_func m_body_callback;
+
+	// body stream, 一般用于处理在header发送完成后的继续
+	// 需要向服务器发送数据.
+	interthread_stream* m_body_stream;
 };
 
 // 请求时的http选项.
