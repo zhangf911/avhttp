@@ -174,19 +174,8 @@ public:
 		return m_opts.size();
 	}
 
-	// 设置body_callback.
+	// 设置body_stream.
 	// 一般用于处理在header发送完成后的继续需要向服务器发送body数据.
-	void body_callback(body_callback_func func)
-	{
-		m_body_callback = func;
-	}
-
-	// 返回body_callback_func.
-	body_callback_func body_callback() const
-	{
-		return m_body_callback;
-	}
-
 	void body_stream(interthread_stream & bodystream)
 	{
 		m_body_stream = & bodystream;
@@ -199,10 +188,6 @@ public:
 protected:
 	// 选项列表.
 	option_item_list m_opts;
-
-	// body选项回调, 一般用于处理在header发送完成后的继续
-	// 需要向服务器发送数据.
-	body_callback_func m_body_callback;
 
 	// body stream, 一般用于处理在header发送完成后的继续
 	// 需要向服务器发送数据.

@@ -84,6 +84,34 @@ void async_splice_stream(StreamRead &s1, StreamWrite &s2, Handler handler)
 	detail::make_splice_stream_op(s1, s2, handler);
 }
 
+template<class StreamRead,class StreamWrite>
+std::size_t splice_stream(StreamRead &s1, StreamWrite &s2, boost::system::error_code &ec)
+{
+	boost::asio::streambuf buf;
+
+	std::size_t readed = 0;
+	std::size_t writed = 0;
+	std::size_t spliced = 0;
+
+	while ( (readed = s1.read_some(buf.prepare(4096), ec)) > 0);
+	{
+		buf.commit(readed);
+
+		writed = s2.write_some(buf.data(), ec);
+		buf.consume(writed);
+
+		if (!ec)
+		{
+			spliced+= writed;
+		} else {
+			return spliced;
+		}
+	}
+
+	return spliced;
+}
+
+
 } // namespace avhttp
 
 

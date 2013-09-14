@@ -1218,19 +1218,19 @@ void http_stream::request(request_opts& opt, boost::system::error_code& ec)
 		LOG_ERROR("Send request, error message: \'" << ec.message() <<"\'");
 		return;
 	}
-
-	// 判断是否设置有用户回调.
-	request_opts::body_callback_func body_callback = m_request_opts.body_callback();
-	if (body_callback)
+	// 判断是否设置有用户body_stream.
+	if (m_request_opts_priv.body_stream())
 	{
-		body_callback(ec);
+		interthread_stream * body_stream = m_request_opts_priv.body_stream();
+
+		splice_stream(*body_stream, m_sock, ec);
+
 		if (ec)
 		{
-			LOG_ERROR("Body callback, error message: \'" << ec.message() <<"\'");
+			LOG_ERROR("error while read body stream, error message: \'" << ec.message() <<"\'");
 			return;
 		}
 	}
-
 	// 读取http头.
 	receive_header(ec);
 }

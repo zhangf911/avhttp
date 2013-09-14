@@ -32,6 +32,8 @@ public:
 	template <typename ConstBufferSequence, typename Handler>
 	void async_write_some(const ConstBufferSequence& buffers, BOOST_ASIO_MOVE_ARG(Handler) handler)
 	{
+ 		boost::mutex::scoped_lock l(m_mutex);
+
 	 	if (m_state_read_closed)
 		{
 			return m_io_service.post(
@@ -42,8 +44,6 @@ public:
 				)
 			);
 		}
-
-		boost::mutex::scoped_lock l(m_mutex);
 
 		std::size_t bytes_writed;
 
@@ -75,8 +75,7 @@ public:
 
 		if ( m_buffer.size() >= 512)
 		{
-			m_current_write_handler = handler;
-			m_writed_size = bytes_writed;
+			m_current_write_handler = m_io_service.wrap(boost::bind<void>(handler, _1, bytes_writed));
 		}else
 		{
 			m_io_service.post(
@@ -108,7 +107,7 @@ public:
 			}
 
 			m_read_buffer = buffers;
-			m_current_read_handler = handler;
+			m_current_read_handler = m_io_service.wrap(handler);
 			return;
 		}
 
@@ -128,15 +127,8 @@ public:
 		{
 			if (m_buffer.size() <= 512)
 			{
-				// 唤醒协程.
-				m_io_service.post(
-					boost::asio::detail::bind_handler(
-						m_current_write_handler,
-						boost::system::error_code(),
-						m_writed_size
-					)
-				);
-
+				// 唤醒协程
+				m_current_write_handler(boost::system::error_code(), 0);
 				m_current_write_handler = NULL;
 			}
 		}
@@ -146,17 +138,19 @@ public:
 	// 关闭, 这样 read 才会读到 eof!
 	void shutdown(boost::asio::socket_base::shutdown_type type)
 	{
+		using namespace boost::asio;
+
 		boost::mutex::scoped_lock l(m_mutex);
 
-		if (type == boost::asio::socket_base::shutdown_send
-			|| type == boost::asio::socket_base::shutdown_both)
+		if (type == socket_base::shutdown_send
+			|| type == socket_base::shutdown_both)
 		{
 			// 关闭写
 			m_state_write_closed = true;
 		}
 
-		if (type == boost::asio::socket_base::shutdown_receive
-			|| type == boost::asio::socket_base::shutdown_both)
+		if (type == socket_base::shutdown_receive
+			|| type == socket_base::shutdown_both)
 		{
 			// 关闭读
 			m_state_read_closed = true;
@@ -167,53 +161,120 @@ public:
 			// 检查是否有 read,  是就返回
 			if (m_current_read_handler)
 			{
-				m_io_service.post(
-					boost::asio::detail::bind_handler(
-						m_current_read_handler,
-						boost::asio::error::make_error_code(boost::asio::error::eof),
-						0
-					)
-				);
+				m_current_read_handler(error::make_error_code(error::eof),0);
 				m_current_read_handler = NULL;
 			}
 		}
-
-		if (m_state_read_closed)
-		{
-			// 检查是否有 read,  是就返回
-			if (m_current_write_handler)
-			{
-				m_io_service.post(
-					boost::asio::detail::bind_handler(
-						m_current_write_handler,
-						boost::asio::error::make_error_code(boost::asio::error::broken_pipe),
-						0
-					)
-				);
-				m_current_write_handler = NULL;
-			}
-		}
+		return cond_wake_writer();
 	}
 
 	// 写入数据
 	template <typename ConstBufferSequence>
-	std::size_t write_some(const ConstBufferSequence& buffers)
+	std::size_t write_some(const ConstBufferSequence& buffers, boost::system::error_code & ec)
 	{
 		// 唤醒正在睡眠的协程.
+		boost::mutex::scoped_lock l(m_mutex);
 
+		if (m_state_read_closed)
+		{
+			ec = boost::asio::error::make_error_code(boost::asio::error::broken_pipe);
+			return 0;
+		}
+
+		std::size_t bytes_writed;
+
+		bytes_writed = boost::asio::buffer_copy(m_buffer.prepare(boost::asio::buffer_size(buffers)),
+			boost::asio::buffer(buffers));
+
+		m_buffer.commit(bytes_writed);
+
+		// 检查是否有读取的，有则唤醒.
+
+		if (m_current_read_handler)
+		{
+			std::size_t bytes_readed = boost::asio::buffer_copy(
+				boost::asio::buffer( m_read_buffer ), m_buffer.data());
+
+			m_buffer.consume( bytes_readed );
+
+ 			// 唤醒 reader
+ 			m_current_read_handler(ec, bytes_readed);
+		}
+
+		if (m_buffer.size() >= 512)
+		{
+			// 进入睡眠状态.
+			m_current_write_handler = boost::bind(&boost::condition_variable::notify_all, &m_write_cond);
+			m_write_cond.wait(l);
+			// 当 m_current_write_handler 被调用的时候， write_cond 就被 notify 了， 也就是执行到这里了
+		}
+		return bytes_writed;
 	}
 
 	// 读取数据
-	template <typename ConstBufferSequence>
-	std::size_t read_some(const ConstBufferSequence& buffers)
+	template <typename MutableBufferSequence>
+	std::size_t read_some(const MutableBufferSequence& buffers, boost::system::error_code & ec)
 	{
+		std::size_t bytes_readed;
+		boost::mutex::scoped_lock l(m_mutex);
 		// 唤醒正在睡眠的协程.
+		if (m_buffer.size() == 0)
+		{
+			if (m_state_write_closed)
+			{
+				ec = boost::asio::error::make_error_code(boost::asio::error::eof);
+				return 0;
+			}
 
+			m_read_buffer = buffers;
+			volatile std::size_t _bytes_readed;
+
+			// 进入睡眠状态.
+			m_current_read_handler = boost::bind(&interthread_stream::m_read_cond_wait_read_handler, this,
+				_1, _2, &ec, &_bytes_readed);
+			m_read_cond.wait(l);
+			bytes_readed = _bytes_readed;
+			// 当 m_current_read_handler 被调用的时候， m_read_cond 就被 notify 了， 也就是执行到这里了
+			return bytes_readed;
+		}
+
+		// 有剩余的，马上读取
+		bytes_readed = boost::asio::buffer_copy(boost::asio::buffer(buffers), m_buffer.data());
+		m_buffer.consume(bytes_readed);
+
+		// 有没有 write 在睡眠？有的话唤醒
+		cond_wake_writer();
+
+		return bytes_readed;
 	}
 
 	boost::asio::io_service & get_io_service()
 	{
 		return m_io_service;
+	}
+
+private:
+	void cond_wake_writer()
+	{
+		if (m_current_write_handler)
+		{
+			if (m_buffer.size() <= 512)
+			{
+				// 唤醒协程
+				m_current_write_handler(boost::system::error_code(), 0);
+				m_current_write_handler = NULL;
+			}
+		}
+	}
+
+private:
+
+	void m_read_cond_wait_read_handler(const boost::system::error_code & ec, std::size_t bytes_transfered,
+		boost::system::error_code *ec_out, volatile std::size_t *bytes_transfered_out)
+	{
+		* ec_out = ec;
+		* bytes_transfered_out =bytes_transfered;
+		m_read_cond.notify_all();
 	}
 
 private:
@@ -231,9 +292,9 @@ private:
 	async_handler_type m_current_read_handler;
 	async_handler_type m_current_write_handler;
 
-	std::size_t m_writed_size;
-
 	mutable boost::mutex m_mutex;
+	mutable boost::condition_variable m_write_cond;
+	mutable boost::condition_variable m_read_cond;
 
 	bool m_state_write_closed;
 	bool m_state_read_closed;
