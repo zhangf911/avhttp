@@ -93,7 +93,7 @@ std::size_t splice_stream(StreamRead &s1, StreamWrite &s2, boost::system::error_
 	std::size_t writed = 0;
 	std::size_t spliced = 0;
 
-	while ( (readed = s1.read_some(buf.prepare(4096), ec)) > 0);
+	while ( (readed = s1.read_some(buf.prepare(4096), ec)) > 0)
 	{
 		buf.commit(readed);
 
