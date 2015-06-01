@@ -1,4 +1,4 @@
-//
+﻿//
 // impl/http_stream.ipp
 // ~~~~~~~~~~~~~~~~~~~~
 //
@@ -1440,6 +1440,7 @@ void http_stream::receive_header()
 
 void http_stream::receive_header(boost::system::error_code& ec)
 {
+	m_response.consume(m_response.size());
 	// 循环读取.
 	for (;;)
 	{
@@ -1577,9 +1578,16 @@ void http_stream::receive_header(boost::system::error_code& ec)
 		if (found == std::string::npos)
 		{
 			// 查询location中是否有协议相关标识, 如果没有http或https前辍, 则添加.
-			std::string prefix = m_url.to_string(
-				url::protocol_component|url::host_component|url::port_component);
-			m_location = prefix + "/" + m_location;
+			std::string temp = m_url.to_string();
+			std::size_t pos = temp.find_last_of('/');
+			if (pos == std::string::npos)
+			{
+				m_location = temp + "/" + m_location;
+			}
+			else
+			{
+				m_location = temp.substr(0, pos + 1) + m_location;
+			}
 		}
 	}
 
@@ -1873,7 +1881,7 @@ void http_stream::handle_request(Handler handler, const boost::system::error_cod
 		handler(ec);
 		return;
 	}
-
+	m_response.consume(m_response.size());
 	// 异步读取Http status.
 	boost::asio::async_read_until(m_sock, m_response, "\r\n",
 		boost::bind(&http_stream::handle_status<Handler>,
@@ -1948,7 +1956,7 @@ void http_stream::handle_status(Handler handler, const boost::system::error_code
 	m_response.consume(response_size - tempbuf.size());
 
 	// "continue"表示我们需要继续等待接收状态, 如果是POST我们直接返回让POST有继续发送
-	// 数据的机会.
+	// 数据的机会, 只有GET请求下服务器返回continue, 我们才在这里继续接收下一个continue.
 	if (m_status_code == errc::continue_request &&
 		m_request_opts_priv.find(http_options::request_method) != "POST")
 	{
@@ -1966,6 +1974,7 @@ void http_stream::handle_status(Handler handler, const boost::system::error_code
 		m_response_opts.insert("_status_code", boost::str(boost::format("%d") % m_status_code));
 
 		// 如果为errc::continue_request, 直接回调, 避免在下面读取"\r\n\r\n"上一直等待.
+		// 这里只有可能是POST状态的时候的continue, 才可能进入下面条件.
 		if (m_status_code == errc::continue_request)
 		{
 			handler(make_error_code(static_cast<errc::errc_t>(m_status_code)));
@@ -2035,9 +2044,16 @@ void http_stream::handle_header(Handler handler,
 		if (found == std::string::npos)
 		{
 			// 查询location中是否有协议相关标识, 如果没有http或https前辍, 则添加.
-			std::string prefix = m_url.to_string(
-				url::protocol_component|url::host_component|url::port_component);
-			m_location = prefix + "/" + m_location;
+			std::string temp = m_url.to_string();
+			std::size_t pos = temp.find_last_of('/');
+			if (pos == std::string::npos)
+			{
+				m_location = temp + "/" + m_location;
+			}
+			else
+			{
+				m_location = temp.substr(0, pos + 1) + m_location;
+			}
 		}
 	}
 
@@ -2692,7 +2708,7 @@ void http_stream::socks_proxy_handshake(Stream& sock, boost::system::error_code&
 	else if (s.type == proxy_settings::socks4)
 		bytes_to_read = 8;
 
-	BOOST_ASSERT(bytes_to_read == 0);
+	BOOST_ASSERT(bytes_to_read != 0);
 
 	m_response.consume(m_response.size());
 	boost::asio::read(sock, m_response,
@@ -2704,11 +2720,11 @@ void http_stream::socks_proxy_handshake(Stream& sock, boost::system::error_code&
 	int version = read_uint8(rp);
 	int response = read_uint8(rp);
 
-	if (version == 5)
+	if (s.type == proxy_settings::socks5 || s.type == proxy_settings::socks5_pw)
 	{
-		if (s.type != proxy_settings::socks5 && s.type != proxy_settings::socks5_pw)
+		if (version != 5)
 		{
-			// 请求的socks协议不是sock5.
+			// 请求的socks5协议但是实际上不是socks5？.
 			ec = errc::socks_unsupported_version;
 			return;
 		}
@@ -2768,7 +2784,7 @@ void http_stream::socks_proxy_handshake(Stream& sock, boost::system::error_code&
 			return;
 		}
 	}
-	else if (version == 4)
+	else if (s.type == proxy_settings::socks4)
 	{
 		// 90: request granted.
 		// 91: request rejected or failed.
@@ -2869,6 +2885,7 @@ void http_stream::handle_connect_socks(Stream& sock, Handler handler,
 
 	if (err)
 	{
+		endpoint_iterator++;
 		tcp::resolver::iterator end;
 		if (endpoint_iterator == end)
 		{
@@ -2879,7 +2896,6 @@ void http_stream::handle_connect_socks(Stream& sock, Handler handler,
 		}
 
 		// 继续尝试连接下一个IP.
-		endpoint_iterator++;
 		boost::asio::async_connect(sock.lowest_layer(), endpoint_iterator,
 			boost::bind(&http_stream::handle_connect_socks<Stream, Handler>,
 				this, boost::ref(sock), handler,
@@ -3445,6 +3461,7 @@ void http_stream::handle_connect_https_proxy(Stream& sock, Handler handler,
 {
 	if (err)
 	{
+		endpoint_iterator++;
 		tcp::resolver::iterator end;
 		if (endpoint_iterator == end)
 		{
@@ -3455,7 +3472,6 @@ void http_stream::handle_connect_https_proxy(Stream& sock, Handler handler,
 		}
 
 		// 继续尝试连接下一个IP.
-		endpoint_iterator++;
 		boost::asio::async_connect(sock.lowest_layer(), endpoint_iterator,
 			boost::bind(&http_stream::handle_connect_https_proxy<Stream, Handler>,
 				this, boost::ref(sock), handler,

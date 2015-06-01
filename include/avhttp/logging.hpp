@@ -1,20 +1,25 @@
-//
+﻿//
 // Copyright (C) 2013 Jack.
 //
 // Author: jack
 // Email:  jack.wgm@gmail.com
 //
 
-#ifndef LOGGING_HPP
-#define LOGGING_HPP
+#ifndef AVHTTP_LOGGING_HPP
+#define AVHTTP_LOGGING_HPP
 
 #if defined(_MSC_VER) && (_MSC_VER >= 1200)
 # pragma once
 #endif // defined(_MSC_VER) && (_MSC_VER >= 1200)
 
 #ifdef WIN32
+#	ifndef WIN32_LEAN_AND_MEAN
+#		define WIN32_LEAN_AND_MEAN
+#	endif // !WIN32_LEAN_AND_MEAN
 #	include <Windows.h>	 // for win32 Console api.
 #endif // WIN32
+
+#define LOGGER_THREAD_SAFE
 
 #include <iostream>
 #include <string>
@@ -40,12 +45,28 @@ namespace avhttp {
 	//  {
 	//     AVHTTP_AUTO_LOGGER(".");					// 在当前目录创建以日期命名的日志文件.
 	//     // 也可 AVHTTP_INIT_LOGGER("example.log");	// 指定日志文件名.
-	//     AVHTTP_LOG_DEBUG << "Initialized.";
+	//     AVHTTP_LOG_DBG << "Initialized.";
 	//     std::string result = do_something();
-	//     AVHTTP_LOG_DEBUG << "do_something return : " << result;	// 输出do_something返回结果到日志.
+	//     AVHTTP_LOG_DBG << "do_something return : " << result;	// 输出do_something返回结果到日志.
 	//     ...
 	//  }
 	// @end example
+	//
+	// 一些可选参数:
+	// AVHTTP_LOG_FILE_NUM, 定义 AVHTTP_LOG_FILE_NUM 可指定最大连续运行日志文件个数, 超出将删除旧日志文件.
+	// 默认是每天生成按日期的日志文件, 所以, AVHTTP_LOG_FILE_NUM参数也相当是指定保留日志的天数.
+	//
+	// AVHTTP_LOG_FILE_BUFFER, 定义写入日志文件的写入缓冲大小, 默认为系统指定大小.
+	// 该参数实际上指定的是 std::ofstream 的写入缓冲大小.
+
+
+#ifndef AVHTTP_LOG_FILE_NUM
+#	define AVHTTP_LOG_FILE_NUM 3
+#endif
+
+#ifndef AVHTTP_LOG_FILE_BUFFER
+#	define AVHTTP_LOG_FILE_BUFFER -1
+#endif
 
 	class auto_logger_file
 	{
@@ -59,10 +80,6 @@ namespace avhttp {
 		typedef boost::shared_ptr<std::ofstream> ofstream_ptr;
 		typedef std::map<std::string, ofstream_ptr> loglist;
 
-		enum {
-			file_num = 3
-		};
-
 		void open(const char * filename, std::ios_base::openmode flag)
 		{
 			m_auto_mode = false;
@@ -71,7 +88,7 @@ namespace avhttp {
 			{
 				m_auto_mode = true;
 				char save_path[65536] = { 0 };
-				int len = pos - filename;
+				std::ptrdiff_t len = pos - filename;
 				if (len < 0 || len > 65536)
 					return;
 				strncpy(save_path, filename, pos - filename);
@@ -95,7 +112,8 @@ namespace avhttp {
 		{
 			if (!m_auto_mode)
 			{
-				m_file.write(str, size);
+				if (m_file.is_open())
+					m_file.write(str, size);
 				return;
 			}
 
@@ -106,8 +124,10 @@ namespace avhttp {
 			{
 				of.reset(new std::ofstream);
 				of->open(fn.c_str(), std::ios_base::out | std::ios_base::app);
+				if (AVHTTP_LOG_FILE_BUFFER != -1)
+					of->rdbuf()->pubsetbuf(NULL, AVHTTP_LOG_FILE_BUFFER);
 				m_log_list.insert(std::make_pair(fn, of));
-				if (m_log_list.size() > file_num)
+				if (m_log_list.size() > AVHTTP_LOG_FILE_NUM)
 				{
 					iter = m_log_list.begin();
 					fn = iter->first;
@@ -183,9 +203,13 @@ namespace avhttp {
 
 		inline char const* time_now_string()
 		{
-			std::ostringstream oss;
-			boost::posix_time::time_facet* _facet = new boost::posix_time::time_facet("%Y-%m-%d %H:%M:%S.%f");
-			oss.imbue(std::locale(std::locale::classic(), _facet));
+			static std::ostringstream oss;
+			if (oss.str().empty())
+			{
+				boost::posix_time::time_facet* _facet = new boost::posix_time::time_facet("%Y-%m-%d %H:%M:%S.%f");
+				oss.imbue(std::locale(std::locale::classic(), _facet));
+			}
+			oss.str("");
 			oss << boost::posix_time::microsec_clock::local_time();
 			std::string s = oss.str();
 			if (s.size() > 3)
@@ -196,11 +220,11 @@ namespace avhttp {
 		}
 	}
 
-#ifdef LOGGER_THREAD_SAFE
+#ifndef DISABLE_LOGGER_THREAD_SAFE
 #	define LOGGER_LOCKS_() boost::mutex::scoped_lock lock(aux::lock_single<boost::mutex>())
 #else
 #	define LOGGER_LOCKS_() ((void)0)
-#endif // LOGGER_THREAD_SAFE
+#endif // DISABLE_LOGGER_THREAD_SAFE
 
 #if defined(WIN32) && defined(LOGGER_DBG_VIEW)
 #	define LOGGER_DBG_VIEW_(x) do { ::OutputDebugStringA(x.c_str()); } while (0)
@@ -220,8 +244,10 @@ namespace avhttp {
 		HANDLE handle_stdout = GetStdHandle(STD_OUTPUT_HANDLE);
 		CONSOLE_SCREEN_BUFFER_INFO csbi;
 		GetConsoleScreenBufferInfo(handle_stdout, &csbi);
-		if (level == LOGGER_DEBUG_STR || level == LOGGER_INFO_STR)
+		if (level == LOGGER_INFO_STR)
 			SetConsoleTextAttribute(handle_stdout, FOREGROUND_GREEN);
+		else if (level == LOGGER_DEBUG_STR)
+			SetConsoleTextAttribute(handle_stdout, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
 		else if (level == LOGGER_WARN_STR)
 			SetConsoleTextAttribute(handle_stdout, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
 		else if (level == LOGGER_ERR_STR)
@@ -231,8 +257,10 @@ namespace avhttp {
 		std::cout << message;
 		SetConsoleTextAttribute(handle_stdout, csbi.wAttributes);
 #else
-		if (level == LOGGER_DEBUG_STR || level == LOGGER_INFO_STR)
+		if (level == LOGGER_INFO_STR)
 			std::cout << "\033[32m" << prefix << "\033[0m" << message;
+		else if (level == LOGGER_DEBUG_STR)
+			std::cout << "\033[1;32m" << prefix << "\033[0m" << message;
 		else if (level == LOGGER_WARN_STR)
 			std::cout << "\033[1;33m" << prefix << "\033[0m" << message;
 		else if (level == LOGGER_ERR_STR)
@@ -336,4 +364,4 @@ namespace avhttp {
 
 #endif
 
-#endif // LOGGING_HPP
+#endif // AVHTTP_LOGGING_HPP

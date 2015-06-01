@@ -1,4 +1,4 @@
-//
+﻿//
 // avhttp.hpp
 // ~~~~~~~~~~
 //
@@ -76,6 +76,8 @@ namespace
 #endif
 
 #include "avhttp/read_body.hpp"
+
+#include "avhttp/post_form.hpp"
 
 #include "avhttp/detail/abi_suffix.hpp"
 
